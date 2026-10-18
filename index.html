@@ -1,1 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Clone Feed</title>
+<style>
+  :root { box-sizing: border-box; color-scheme: dark; }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0;
+    -webkit-tap-highlight-color: transparent; outline: none; }
+  button:focus-visible { outline: 2px solid rgba(255,255,255,.7); outline-offset: 2px; }
+  .app { position: relative; height: 100%; width: 100%; max-width: 480px; margin: 0 auto; }
 
+  .tabs { position: absolute; top: env(safe-area-inset-top, 0px); left: 0; right: 0; z-index: 5;
+    display: flex; justify-content: center; gap: 22px; padding: 14px 0; pointer-events: none; }
+  .tabs button { pointer-events: auto; font-weight: 600; font-size: 16px; opacity: .65; }
+  .tabs button.active { opacity: 1; border-bottom: 2px solid #fff; padding-bottom: 4px; }
+
+  .feed { height: 100%; overflow-y: scroll; scroll-snap-type: y mandatory; scrollbar-width: none; }
+  .feed::-webkit-scrollbar { display: none; }
+
+  .video { position: relative; height: 100%; scroll-snap-align: start; overflow: hidden;
+    display: flex; align-items: flex-end; }
+  .bg { position: absolute; inset: 0; transition: transform .6s ease; }
+  .video.liked-pulse .bg { filter: brightness(1.1); }
+  .shade { position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,.75) 0%, rgba(0,0,0,0) 45%); }
+  .center-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%) scale(0);
+    font-size: 96px; pointer-events: none; transition: transform .25s ease, opacity .4s; opacity: 0; }
+  .center-icon.show { transform: translate(-50%,-50%) scale(1); opacity: 1; }
+
+  .info { position: relative; z-index: 2; padding: 0 76px calc(84px + env(safe-area-inset-bottom, 0px)) 16px; width: 100%; }
+  .creator { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 8px; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center;
+    font-weight: 700; border: 1.5px solid #fff; flex-shrink: 0; }
+  .follow { margin-left: 6px; border: 1px solid #fff; border-radius: 4px; padding: 3px 10px; font-size: 13px; font-weight: 600; }
+  .follow.on { background: #fff; color: #000; }
+  .caption { font-size: 15px; line-height: 1.35; margin: 0 0 8px; }
+  .tags { color: #fff; font-weight: 600; font-size: 14px; }
+  .music { font-size: 13px; opacity: .85; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .rail { position: absolute; right: 10px; bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 3;
+    display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .act { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; }
+  .act .ico { font-size: 30px; line-height: 1; transition: transform .15s; }
+  .act:active .ico { transform: scale(.8); }
+  .dl-btn { font-size: 15px; gap: 6px; }
+  .dl-btn .ico { display: grid; place-items: center; }
+  .act.liked .ico { color: #fe2c55; }
+  .disc { width: 44px; height: 44px; border-radius: 50%; background: #222; border: 10px solid #333;
+    animation: spin 4s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .video:not(.is-active) .disc { animation-play-state: paused; }
+
+  .nav { position: absolute; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+    height: 66px; border-radius: 33px; padding: 0 8px; touch-action: none; user-select: none; -webkit-user-select: none;
+    display: flex; justify-content: space-around; align-items: center;
+    background: linear-gradient(135deg, rgba(255,255,255,.28) 0%, rgba(255,255,255,.08) 45%, rgba(255,255,255,.16) 100%);
+    -webkit-backdrop-filter: blur(24px) saturate(190%) brightness(1.08);
+    backdrop-filter: blur(24px) saturate(190%) brightness(1.08);
+    border: 1px solid rgba(255,255,255,.35);
+    box-shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 6px rgba(0,0,0,.25),
+      inset 0 1px 1px rgba(255,255,255,.55), inset 0 -1px 1px rgba(255,255,255,.12),
+      inset 0 0 14px rgba(255,255,255,.08); }
+  .nav::before { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(120% 60% at 20% 0%, rgba(255,255,255,.35), rgba(255,255,255,0) 60%); opacity: .6; }
+  .nav button { position: relative; z-index: 1; width: 56px; height: 52px; border-radius: 26px;
+    font-size: 11px; font-weight: 500; color: #fff; opacity: .7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+    transition: background .25s ease, opacity .25s ease, transform .2s ease; }
+  .nav button { transform: translateY(calc(var(--p, 0) * -6px)) scale(calc(1 + var(--p, 0) * .3)); opacity: calc(.6 + var(--p, 0) * .4);
+    transition: transform .12s ease-out, opacity .12s ease-out; }
+  .nav button.active { opacity: 1; }
+  .nav button.active { opacity: 1; }
+  .nav-thumb { position: absolute; top: 7px; left: 0; width: 56px; height: 52px; border-radius: 26px; pointer-events: none; z-index: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,.38), rgba(255,255,255,.12));
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.75), inset 0 -1px 2px rgba(255,255,255,.18), 0 4px 14px rgba(0,0,0,.28);
+    transform-origin: center;
+    transition: transform .5s cubic-bezier(.34,1.56,.64,1); }
+  .nav-thumb.dragging { transition: transform .08s linear, border-radius .15s ease-out; }
+  .goo { position: absolute; left: 0; top: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none;
+    display: none; opacity: .92; overflow: visible; }
+  .goo circle { fill: url(#liq); }
+  .nav-thumb::after { content: ""; position: absolute; left: 10px; right: 10px; top: 4px; height: 45%; border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,0)); opacity: .85; pointer-events: none; }
+  .nav .plus { width: 50px; height: 34px; border-radius: 11px; box-shadow: 0 2px 10px rgba(254,44,85,.35), inset 0 1px 1px rgba(255,255,255,.5); }
+  .plus { width: 46px; height: 30px; border-radius: 8px; background: linear-gradient(90deg,#25f4ee,#fe2c55); color: #000 !important; font-size: 22px; font-weight: 800; display: grid; place-items: center; }
+
+  .sheet-wrap { position: absolute; inset: 0; z-index: 10; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .sheet-wrap.open { opacity: 1; pointer-events: auto; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 65%; background: #161616; border-radius: 14px 14px 0 0;
+    transform: translateY(100%); transition: transform .3s ease; display: flex; flex-direction: column; }
+  .sheet-wrap.open .sheet { transform: translateY(0); }
+  .sheet header { text-align: center; padding: 14px; border-bottom: 1px solid #2a2a2a; font-weight: 700; position: relative; }
+  .sheet header button { position: absolute; right: 14px; top: 12px; font-size: 18px; opacity: .7; }
+  .comments { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .cmt { display: flex; gap: 10px; margin-bottom: 14px; font-size: 14px; }
+  .cmt .avatar { width: 30px; height: 30px; font-size: 12px; border: 0; }
+  .cmt b { display: block; font-size: 13px; opacity: .7; margin-bottom: 2px; }
+  .cmt-form { display: flex; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid #2a2a2a; }
+  .cmt-form input { flex: 1; background: #262626; border: 0; border-radius: 20px; padding: 10px 14px; color: #fff; font: inherit; outline: none; }
+  .cmt-form button { color: #fe2c55; font-weight: 700; padding: 0 6px; }
+
+  .toast { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); z-index: 20; background: rgba(40,40,40,.95);
+    padding: 8px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .25s; pointer-events: none; white-space: nowrap; }
+  .toast.show { opacity: 1; }
+  .placeholder { display: grid; place-items: center; height: 100%; opacity: .7; text-align: center; padding: 24px; }
+  .up-form { padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+  .up-form input, .up-form textarea { background: #262626; border: 0; border-radius: 10px; padding: 12px; color: #fff;
+    font: inherit; font-size: 15px; outline: none; width: 100%; }
+  .up-form textarea { min-height: 70px; resize: none; }
+  .up-file { display: block; background: #262626; border-radius: 10px; padding: 14px; text-align: center; cursor: pointer; font-size: 15px; }
+  .up-file input { display: none; }
+  .up-submit { background: linear-gradient(90deg,#25f4ee,#fe2c55); color: #000; font-weight: 800; border-radius: 10px; padding: 13px; font-size: 16px; }
+  .vid { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .player { position: absolute; inset: 0; }
+  .pl-tap { position: absolute; top: 0; left: 0; right: 0; bottom: 150px; z-index: 1; }
+  .pl-big { position: absolute; top: 50%; left: 50%; width: 92px; height: 92px; border-radius: 50%; display: grid; place-items: center;
+    font-size: 34px; color: #fff; background: rgba(255,255,255,.2); -webkit-backdrop-filter: blur(12px) saturate(160%); backdrop-filter: blur(12px) saturate(160%);
+    border: 1px solid rgba(255,255,255,.35); box-shadow: inset 0 1px 1px rgba(255,255,255,.6);
+    transform: translate(-50%,-50%) scale(.6); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 2; }
+  .pl-big.show { opacity: 1; transform: translate(-50%,-50%) scale(1); }
+  .pl-bar { position: absolute; left: 16px; right: 76px; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); z-index: 3;
+    display: flex; align-items: center; gap: 10px; }
+  .pl-mute { width: 32px; height: 32px; border-radius: 50%; font-size: 15px; display: grid; place-items: center;
+    background: rgba(255,255,255,.2); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,.3); }
+  .pl-track { flex: 1; height: 22px; position: relative; cursor: pointer; touch-action: none; display: flex; align-items: center; }
+  .pl-track::before { content: ""; position: absolute; left: 0; right: 0; height: 4px; border-radius: 2px; background: rgba(255,255,255,.3); }
+  .pl-fill { position: absolute; left: 0; height: 4px; width: 0; border-radius: 2px; background: #fff; box-shadow: 0 0 6px rgba(255,255,255,.6); }
+  .pl-time { font-size: 12px; font-weight: 600; min-width: 74px; text-align: right; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="tabs">
+    <button class="active" data-tab="foryou">For You</button>
+    <button data-tab="following">Following</button>
+  </div>
+
+  <main class="feed" id="feed"></main>
+
+  <div class="sheet-wrap" id="sheetWrap">
+    <div class="sheet" id="sheet">
+      <header>
+        <span id="cmtTitle">Comments</span>
+        <button id="closeSheet" aria-label="Close">✕</button>
+      </header>
+      <div class="comments" id="comments"></div>
+      <form class="cmt-form" id="cmtForm">
+        <input id="cmtInput" placeholder="Add comment..." autocomplete="off" maxlength="200">
+        <button type="submit">Post</button>
+      </form>
+    </div>
+  </div>
+
+  <nav class="nav">
+    <button class="active" data-nav="home"><span style="font-size:22px">⌂</span>Home</button>
+    <button data-nav="discover"><span style="font-size:22px">⌕</span>Discover</button>
+    <button data-nav="create"><span class="plus">+</span></button>
+    <button data-nav="inbox"><span style="font-size:22px">✉</span>Inbox</button>
+    <button data-nav="profile"><span style="font-size:22px">☺</span>Profile</button>
+  </nav>
+
+  <div class="sheet-wrap" id="uploadWrap">
+    <div class="sheet" style="height:auto;max-height:88%">
+      <header>
+        <span>New post</span>
+        <button id="closeUpload" aria-label="Close">✕</button>
+      </header>
+      <form class="up-form" id="upForm">
+        <label class="up-file">
+          <input type="file" id="upFile" accept="video/*">
+          <span id="upFileName">Choose a video</span>
+        </label>
+        <textarea id="upDesc" placeholder="Description" maxlength="300"></textarea>
+        <input id="upDownload" type="url" placeholder="Download link (optional)">
+        <input id="upTiktok" type="url" placeholder="TikTok link to open (optional)">
+        <input id="ghToken" type="password" placeholder="GitHub token (saved on this device)" autocomplete="off">
+        <button type="submit" class="up-submit">Post</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+(function () {
+  // Set these to your repo. It must be public so viewers can watch.
+  const FEED_REPO = "your-username/your-repo";
+  const FEED_BRANCH = "main";
+
+  const VIDEOS = [
+    { id: 1, user: "dancewithme", name: "Dance With Me", c1: "#ff6a00", c2: "#ee0979", caption: "Learning this combo was harder than it looked 😅", tags: "#dance #fyp #challenge", music: "original sound - dancewithme", likes: 12400, comments: [["mia","so good!!"],["leo","teach me 🙏"]], following: false },
+    { id: 2, user: "chefnoor", name: "Chef Noor", c1: "#11998e", c2: "#38ef7d", caption: "3-ingredient pasta that changed my life 🍝", tags: "#cooking #food #easyrecipes", music: "Sunday Jazz - Lo-Fi Kitchen", likes: 8731, comments: [["sam","saving this"]], following: true },
+    { id: 3, user: "trailpulse", name: "Trail Pulse", c1: "#2c3e50", c2: "#4ca1af", caption: "Sunrise from the top. Worth every step. 🏔️", tags: "#hiking #nature #views", music: "Mountain Wind - Ambient", likes: 20155, comments: [["ana","goals"],["kai","where is this?"]], following: false },
+    { id: 4, user: "pixelpete", name: "Pixel Pete", c1: "#8e2de2", c2: "#4a00e0", caption: "Speedrunning my favorite level in 40 seconds 🎮", tags: "#gaming #speedrun #retro", music: "8-bit Vibes - Chiptune", likes: 3190, comments: [], following: false },
+    { id: 5, user: "lunaloops", name: "Luna Loops", c1: "#f7971e", c2: "#ffd200", caption: "Watercolor timelapse, 90 seconds of calm ☁️", tags: "#art #timelapse #satisfying", music: "Golden Hour - Soft Piano", likes: 15602, comments: [["ray","so relaxing"]], following: true }
+  ];
+
+  const state = { tab: "foryou", current: null, activeCommentsFor: null };
+  const feed = document.getElementById("feed");
+  const toast = document.getElementById("toast");
+  const sheetWrap = document.getElementById("sheetWrap");
+
+  function fmt(n) { return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "K" : String(n); }
+  function showToast(msg) {
+    toast.textContent = msg; toast.classList.add("show");
+    clearTimeout(showToast._t); showToast._t = setTimeout(() => toast.classList.remove("show"), 1300);
+  }
+
+  function visibleVideos() {
+    return state.tab === "following" ? VIDEOS.filter(v => v.following) : VIDEOS;
+  }
+
+  function render() {
+    const list = visibleVideos();
+    feed.innerHTML = "";
+    if (!list.length) {
+      feed.innerHTML = '<div class="placeholder"><div><p style="font-size:18px;font-weight:700">Nothing here yet</p><p>Follow creators to see their videos here.</p></div></div>';
+      return;
+    }
+    list.forEach(v => feed.appendChild(buildVideo(v)));
+    feed.scrollTop = 0;
+    if (state.io) state.io.disconnect();
+    state.io = new IntersectionObserver(entries => entries.forEach(en => {
+        en.target.classList.toggle("is-active", en.isIntersecting);
+        const vid = en.target.querySelector("video");
+        if (vid) {
+          if (en.isIntersecting) {
+            vid.play().catch(() => {
+              vid.muted = true;
+              vid.play().catch(() => {});
+            });
+          } else vid.pause();
+        }
+      }),
+      { root: feed, threshold: 0.6 });
+    feed.querySelectorAll(".video").forEach(el => state.io.observe(el));
+  }
+
+  function buildVideo(v) {
+    const el = document.createElement("section");
+    el.className = "video";
+    el.dataset.id = v.id;
+    el.innerHTML = `
+      <div class="bg" style="background:linear-gradient(160deg, ${v.c1}, ${v.c2})"></div>
+      ${v.src ? `<div class="player">
+        <video class="vid" src="${v.src}" loop playsinline preload="metadata"></video>
+        <div class="pl-tap"></div>
+        <div class="pl-big"></div>
+        <div class="pl-bar">
+          <button class="pl-mute" aria-label="Mute">🔊</button>
+          <div class="pl-track"><div class="pl-fill"></div></div>
+          <span class="pl-time">0:00</span>
+        </div>
+      </div>` : ""}
+      <div class="shade"></div>
+      <div class="center-icon">♥</div>
+      <div class="info">
+        <div class="creator">
+          <div class="avatar" style="background:${v.c2}">${v.user[0].toUpperCase()}</div>
+          <span>@${v.user}</span>
+          <button class="follow ${v.following ? "on" : ""}">${v.following ? "Following" : "Follow"}</button>
+        </div>
+        <p class="caption">${escapeHtml(v.caption)}</p>
+        <div class="tags">${escapeHtml(v.tags)}</div>
+      </div>
+      <div class="rail">
+        <button class="act dl-btn"><span class="ico"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v12"/><path d="M6.5 10.5 12 16l5.5-5.5"/><path d="M4 20.5h16"/></svg></span><span style="font-weight:700">Download</span></button>
+        <button class="act cmt-btn"><span class="ico">💬</span><span class="count">${fmt(v.comments.length)}</span></button>
+        <button class="act share-btn"><span class="ico"><svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 20v-5.5a6.5 6.5 0 0 1 6.5-6.5h10"/><path d="M14.5 3.5 20.5 8l-6 4.5"/></svg></span><span style="font-weight:700">Open</span></button>
+      </div>`;
+
+    el.querySelector(".dl-btn").addEventListener("click", () => {
+      if (v.downloadUrl) { window.open(v.downloadUrl, "_blank", "noopener"); return; }
+      if (v.src) {
+        const a = document.createElement("a");
+        a.href = v.src; a.download = v.fileName || "video";
+        document.body.appendChild(a); a.click(); a.remove();
+        return;
+      }
+      showToast("No download link");
+    });
+    el.querySelector(".cmt-btn").addEventListener("click", () => openComments(v));
+    const vid = el.querySelector("video.vid");
+    if (vid) wirePlayer(el, vid);
+    el.querySelector(".share-btn").addEventListener("click", () => {
+      const url = v.url || (v.src ? "" : `https://www.tiktok.com/@${v.user}`);
+      if (!url) { showToast("Add a TikTok link when posting"); return; }
+      window.open(url, "_blank", "noopener");
+    });
+    el.querySelector(".follow").addEventListener("click", e => toggleFollow(v, e.currentTarget));
+    el.addEventListener("dblclick", () => { if (!v.liked) toggleLike(v, el); flashHeart(el); });
+    return el;
+  }
+
+  function toggleLike(v, el) {
+    v.liked = !v.liked;
+    v.likes += v.liked ? 1 : -1;
+    const btn = el.querySelector(".like-btn");
+    if (btn) {
+      btn.classList.toggle("liked", v.liked);
+      btn.querySelector(".count").textContent = fmt(v.likes);
+    }
+    if (v.liked) flashHeart(el);
+  }
+
+  function flashHeart(el) {
+    const icon = el.querySelector(".center-icon");
+    icon.classList.add("show");
+    setTimeout(() => icon.classList.remove("show"), 450);
+  }
+
+  function toggleFollow(v, btn) {
+    v.following = !v.following;
+    btn.classList.toggle("on", v.following);
+    btn.textContent = v.following ? "Following" : "Follow";
+    showToast(v.following ? "Followed @" + v.user : "Unfollowed @" + v.user);
+  }
+
+  function openComments(v) {
+    state.activeCommentsFor = v;
+    document.getElementById("cmtTitle").textContent = v.comments.length + " comments";
+    renderComments(v);
+    sheetWrap.classList.add("open");
+  }
+
+  function renderComments(v) {
+    const box = document.getElementById("comments");
+    box.innerHTML = "";
+    if (!v.comments.length) {
+      box.innerHTML = '<p style="opacity:.6;text-align:center;margin-top:40px">No comments yet. Be the first.</p>';
+      return;
+    }
+    v.comments.forEach(([user, text]) => {
+      const row = document.createElement("div");
+      row.className = "cmt";
+      row.innerHTML = `<div class="avatar" style="background:#444">${user[0].toUpperCase()}</div><div><b>@${escapeHtml(user)}</b>${escapeHtml(text)}</div>`;
+      box.appendChild(row);
+    });
+  }
+
+  document.getElementById("cmtForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const input = document.getElementById("cmtInput");
+    const text = input.value.trim();
+    const v = state.activeCommentsFor;
+    if (!text || !v) return;
+    v.comments.push(["you", text]);
+    input.value = "";
+    document.getElementById("cmtTitle").textContent = v.comments.length + " comments";
+    renderComments(v);
+    const card = feed.querySelector(`[data-id="${v.id}"] .cmt-btn .count`);
+    if (card) card.textContent = fmt(v.comments.length);
+  });
+
+  function closeSheet() { sheetWrap.classList.remove("open"); }
+  document.getElementById("closeSheet").addEventListener("click", closeSheet);
+  sheetWrap.addEventListener("click", e => { if (e.target === sheetWrap) closeSheet(); });
+
+  document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x === b));
+    state.tab = b.dataset.tab;
+    render();
+  }));
+
+  document.querySelectorAll(".nav button").forEach(b => b.addEventListener("click", () => {
+    const n = b.dataset.nav;
+    if (n === "create") { openUpload(); return; }
+    document.querySelectorAll(".nav button").forEach(x => x.classList.toggle("active", x === b));
+    if (n === "home") { document.querySelector(".tabs").style.display = "flex"; feed.style.display = "block"; render(); return; }
+    document.querySelector(".tabs").style.display = "none";
+    feed.style.display = "block";
+    feed.innerHTML = `<div class="placeholder"><div><p style="font-size:18px;font-weight:700">${n[0].toUpperCase() + n.slice(1)}</p><p>This section is a placeholder in the demo.</p></div></div>`;
+  }));
+
+  // ---- GitHub storage: videos go to videos/, the post list to posts.json ----
+  const ghToken = document.getElementById("ghToken");
+  function ghLoad() { try { ghToken.value = localStorage.getItem("ghToken") || ""; } catch (_) {} }
+  function ghSave() { try { localStorage.setItem("ghToken", ghToken.value.trim()); } catch (_) {} }
+
+  // Turns a failed GitHub response into an error message that says why.
+  async function ghError(res) {
+    let msg = "";
+    try { msg = (await res.json()).message || ""; } catch (_) {}
+    return new Error(`GitHub ${res.status}${msg ? ": " + msg : ""}`);
+  }
+
+  async function uploadToGitHub(file, token) {
+    const name = `${Date.now()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+    const path = `videos/${name}`;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    const res = await fetch(`https://api.github.com/repos/${FEED_REPO}/contents/${path}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
+      body: JSON.stringify({ message: `Add video ${name}`, content: btoa(bin), branch: FEED_BRANCH })
+    });
+    if (!res.ok) throw await ghError(res);
+    return `https://raw.githubusercontent.com/${FEED_REPO}/${FEED_BRANCH}/${path}`;
+  }
+
+  // Adds one post to posts.json, reading the current list first so nothing is overwritten.
+  async function addToManifest(entry, token) {
+    const api = `https://api.github.com/repos/${FEED_REPO}/contents/posts.json`;
+    const headers = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
+    let posts = [], sha;
+    const get = await fetch(`${api}?ref=${FEED_BRANCH}`, { headers });
+    if (get.ok) {
+      const j = await get.json();
+      sha = j.sha;
+      const bytes = Uint8Array.from(atob(j.content.replace(/\n/g, "")), c => c.charCodeAt(0));
+      posts = JSON.parse(new TextDecoder().decode(bytes));
+    } else if (get.status !== 404) {
+      throw await ghError(get);
+    }
+    posts.push(entry);
+    let bin = "";
+    for (const b of new TextEncoder().encode(JSON.stringify(posts, null, 2))) bin += String.fromCharCode(b);
+    const body = { message: "Update posts", content: btoa(bin), branch: FEED_BRANCH };
+    if (sha) body.sha = sha;
+    const put = await fetch(api, { method: "PUT", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!put.ok) throw await ghError(put);
+  }
+
+  // Everyone who opens the page sees the posts from posts.json.
+  async function loadRemote() {
+    try {
+      const res = await fetch(`https://raw.githubusercontent.com/${FEED_REPO}/${FEED_BRANCH}/posts.json?t=${Date.now()}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const posts = (await res.json()).sort((a, b) => a.id - b.id); // oldest first, so unshift leaves newest on top
+      posts.forEach(p => VIDEOS.unshift({
+        id: p.id, user: "creator", name: "Creator", c1: "#333", c2: "#fe2c55",
+        caption: p.caption, tags: "", likes: 0, comments: [], following: true,
+        src: p.videoUrl, fileName: p.fileName, downloadUrl: p.downloadUrl, url: p.url
+      }));
+      if (posts.length) render();
+    } catch (_) {}
+  }
+
+  // ---- Custom video player for uploaded videos ----
+  function wirePlayer(el, vid) {
+    const big = el.querySelector(".pl-big");
+    const fill = el.querySelector(".pl-fill");
+    const track = el.querySelector(".pl-track");
+    const time = el.querySelector(".pl-time");
+    const muteBtn = el.querySelector(".pl-mute");
+    let flashT = 0;
+
+    const fmt = s => {
+      if (!isFinite(s)) return "0:00";
+      return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+    };
+    const flash = icon => {
+      big.textContent = icon;
+      big.classList.add("show");
+      clearTimeout(flashT);
+      flashT = setTimeout(() => big.classList.remove("show"), 500);
+    };
+    const seek = e => {
+      const r = track.getBoundingClientRect();
+      const p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+      if (isFinite(vid.duration)) vid.currentTime = p * vid.duration;
+      fill.style.width = p * 100 + "%";
+    };
+
+    el.querySelector(".pl-tap").addEventListener("click", () => {
+      if (vid.paused) { vid.play().catch(() => {}); flash("▶"); }
+      else { vid.pause(); flash("❚❚"); }
+    });
+    muteBtn.addEventListener("click", () => {
+      vid.muted = !vid.muted;
+      muteBtn.textContent = vid.muted ? "🔇" : "🔊";
+    });
+    track.addEventListener("pointerdown", e => { track.setPointerCapture(e.pointerId); seek(e); });
+    track.addEventListener("pointermove", e => { if (track.hasPointerCapture(e.pointerId)) seek(e); });
+    vid.addEventListener("timeupdate", () => {
+      const d = vid.duration;
+      fill.style.width = (isFinite(d) && d > 0 ? (vid.currentTime / d) * 100 : 0) + "%";
+      time.textContent = fmt(vid.currentTime) + " / " + fmt(d);
+    });
+    vid.addEventListener("loadedmetadata", () => { time.textContent = "0:00 / " + fmt(vid.duration); });
+  }
+
+  // ---- Upload from the center + button ----
+  const uploadWrap = document.getElementById("uploadWrap");
+  const upFile = document.getElementById("upFile");
+
+  function openUpload() { ghLoad(); uploadWrap.classList.add("open"); }
+  function closeUpload() { uploadWrap.classList.remove("open"); }
+  document.getElementById("closeUpload").addEventListener("click", closeUpload);
+  uploadWrap.addEventListener("click", e => { if (e.target === uploadWrap) closeUpload(); });
+  upFile.addEventListener("change", () => {
+    document.getElementById("upFileName").textContent = upFile.files[0] ? upFile.files[0].name : "Choose a video";
+  });
+  document.getElementById("upForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const file = upFile.files[0];
+    if (!file) { showToast("Choose a video first"); return; }
+    const token = ghToken.value.trim();
+    if (!token) { showToast("Add your GitHub token"); return; }
+    ghSave();
+    showToast("Uploading to GitHub…");
+    const desc = document.getElementById("upDesc").value.trim() || "New video";
+    const dl = document.getElementById("upDownload").value.trim();
+    const tt = document.getElementById("upTiktok").value.trim();
+    let remoteUrl;
+    try {
+      remoteUrl = await uploadToGitHub(file, token);
+      await addToManifest({ id: Date.now(), caption: desc, fileName: file.name, videoUrl: remoteUrl, downloadUrl: dl || remoteUrl, url: tt }, token);
+    } catch (err) {
+      showToast(err.message);
+      return;
+    }
+    VIDEOS.unshift({
+      id: Date.now(), user: "you", name: "You", c1: "#333", c2: "#fe2c55",
+      caption: document.getElementById("upDesc").value.trim() || "New video",
+      tags: "", likes: 0, comments: [], following: true,
+      src: URL.createObjectURL(file), fileName: file.name,
+      downloadUrl: document.getElementById("upDownload").value.trim(),
+      url: document.getElementById("upTiktok").value.trim()
+    });
+    e.target.reset();
+    document.getElementById("upFileName").textContent = "Choose a video";
+    closeUpload();
+    state.tab = "foryou";
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("active", x.dataset.tab === "foryou"));
+    document.querySelector('.nav button[data-nav="home"]').click();
+    showToast("Posted");
+  });
+
+  // ---- Saved posts (IndexedDB keeps the video files between visits) ----
+  const DB_NAME = "clone-feed", STORE = "posts";
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: "id" });
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function dbPut(post) {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).put(post);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  }
+  async function dbAll() {
+    const db = await openDB();
+    const posts = await new Promise((resolve, reject) => {
+      const req = db.transaction(STORE, "readonly").objectStore(STORE).getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return posts;
+  }
+  async function loadSaved() {
+    try {
+      const posts = (await dbAll()).sort((a, b) => a.id - b.id); // oldest first, so unshift leaves newest on top
+      posts.forEach(p => VIDEOS.unshift({
+        id: p.id, user: "you", name: "You", c1: "#333", c2: "#fe2c55",
+        caption: p.caption, tags: "", likes: 0, comments: [], following: true,
+        src: URL.createObjectURL(p.file), fileName: p.fileName,
+        downloadUrl: p.downloadUrl, url: p.url
+      }));
+      if (posts.length) render();
+    } catch (err) {
+      showToast("Saved posts not loaded: " + (err && (err.message || err.name) || "storage blocked"));
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // Liquid glass lens: drag across the nav, it stretches with speed and springs to the nearest item.
+  (function setupNavDrag() {
+    const nav = document.querySelector(".nav");
+    const thumb = document.createElement("div");
+    thumb.className = "nav-thumb";
+    nav.prepend(thumb);
+    const W = 56, PAD = 8;
+    let dragging = false, moved = false, startX = 0, lastX = 0, vel = 0, before = null;
+
+    const clampX = x => Math.max(PAD, Math.min(nav.clientWidth - PAD - W, x));
+    let curX = 0;
+    const paint = (x, sx = 1, sy = 1, sk = 0) => {
+      const g = dragging ? 1.3 : 1;
+      curX = x;
+      thumb.style.transform = `translate3d(${x}px,0,0) skewX(${sk}deg) scale(${sx * g},${sy * g})`;
+    };
+    const centerX = btn => btn.offsetLeft + (btn.offsetWidth - W) / 2;
+
+    function snapTo(btn) {
+      nav.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === btn));
+      const from = curX, to = centerX(btn), dist = to - from;
+      thumb.getAnimations().forEach(a => a.cancel());
+      if (Math.abs(dist) < 2) { paint(to); return; }
+
+      // One body that stretches along the direction of travel, overshoots, and wobbles back.
+      const dir = Math.sign(dist);
+      const stretch = Math.min(0.45, Math.abs(dist) / 220);
+      thumb.style.transition = "none";
+      paint(to);
+      thumb.animate([
+        { transform: `translate3d(${from}px,0,0) skewX(0deg) scale(1,1)` },
+        { transform: `translate3d(${from + dist * 0.4}px,0,0) skewX(${-dir * 8}deg) scale(${1 + stretch},${1 - stretch * 0.4})`, offset: 0.3 },
+        { transform: `translate3d(${to + dir * 7}px,0,0) skewX(${dir * 3}deg) scale(${1 + stretch * 0.3},${1 - stretch * 0.15})`, offset: 0.68 },
+        { transform: `translate3d(${to - dir * 2}px,0,0) skewX(0deg) scale(.98,1.02)`, offset: 0.85 },
+        { transform: `translate3d(${to}px,0,0) skewX(0deg) scale(1,1)` }
+      ], { duration: 640, easing: "cubic-bezier(.3,.7,.3,1)" }).onfinish = () => { thumb.style.transition = ""; };
+    }
+
+    function nearest(x) {
+      const cx = x + W / 2;
+      let best = null, d = Infinity;
+      nav.querySelectorAll("button").forEach(b => {
+        const dd = Math.abs(b.offsetLeft + b.offsetWidth / 2 - cx);
+        if (dd < d) { d = dd; best = b; }
+      });
+      return best;
+    }
+
+    function updateProximity(x) {
+      const cx = x + W / 2;
+      nav.querySelectorAll("button").forEach(b => {
+        const d = Math.abs(b.offsetLeft + b.offsetWidth / 2 - cx);
+        b.style.setProperty("--p", Math.max(0, 1 - d / (W * 1.1)).toFixed(3));
+      });
+    }
+
+    function clearProximity() {
+      nav.querySelectorAll("button").forEach(b => b.style.setProperty("--p", 0));
+    }
+
+    nav.addEventListener("pointerdown", e => {
+      dragging = true; moved = false;
+      startX = lastX = e.clientX; vel = 0;
+      before = nav.querySelector("button.active");
+      navLeft = nav.getBoundingClientRect().left;
+      thumb.classList.add("dragging");
+      nav.setPointerCapture(e.pointerId);
+    });
+
+    let rafPending = false, lastEv = null, navLeft = 0;
+    nav.addEventListener("pointermove", e => {
+      if (!dragging) return;
+      lastEv = e;
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => {
+        rafPending = false;
+        if (!dragging || !lastEv) return;
+        const ev = lastEv;
+        if (Math.abs(ev.clientX - startX) > 4) moved = true;
+        const v = ev.clientX - lastX; lastX = ev.clientX;
+        vel = vel * 0.6 + v * 0.4;
+        const s = Math.min(Math.abs(vel) * 0.018, 0.22);
+        const x = clampX(ev.clientX - navLeft - W / 2);
+        const sk = Math.max(-9, Math.min(9, -vel * 0.45));
+        paint(x, 1 + s, 1 - s * 0.5, sk);
+        const lead = Math.min(Math.abs(vel) * 0.9, 14);
+        thumb.style.borderRadius = vel >= 0
+          ? `${26 + lead}px ${26 - lead * 0.5}px ${26 - lead * 0.5}px ${26 + lead}px`
+          : `${26 - lead * 0.5}px ${26 + lead}px ${26 + lead}px ${26 - lead * 0.5}px`;
+        updateProximity(x);
+      });
+    });
+
+    function release(e) {
+      if (!dragging) return;
+      dragging = false;
+      thumb.classList.remove("dragging");
+      clearProximity();
+      thumb.style.borderRadius = "";
+      if (!moved) return; // plain tap: the native click handles it
+      const x = clampX(e.clientX - nav.getBoundingClientRect().left - W / 2);
+      const btn = nearest(x);
+      if (btn !== before) btn.click(); // page handler runs, nav click listener snaps the lens
+      else snapTo(before);
+    }
+    nav.addEventListener("pointerup", release);
+    nav.addEventListener("pointercancel", release);
+
+    // Gooey layer: circles that merge with a smooth neck when close, like real liquid.
+    const svgNS = "http://www.w3.org/2000/svg";
+    const goo = document.createElementNS(svgNS, "svg");
+    goo.setAttribute("class", "goo");
+    goo.innerHTML =
+      '<defs><radialGradient id="liq" cx="40%" cy="30%" r="75%">' +
+      '<stop offset="0" stop-color="#ffffff"/><stop offset=".55" stop-color="#e3f3ff"/><stop offset="1" stop-color="#7fb8e6"/></radialGradient>' +
+      '<filter id="gooF" x="-30%" y="-50%" width="160%" height="200%">' +
+      '<feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b"/>' +
+      '<feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11" result="g"/>' +
+      '<feGaussianBlur in="g" stdDeviation="1.2" result="gs"/>' +
+      '<feSpecularLighting in="gs" surfaceScale="5" specularConstant="1.2" specularExponent="24" lighting-color="#ffffff" result="spec">' +
+      '<fePointLight x="-30" y="-60" z="140"/></feSpecularLighting>' +
+      '<feComposite in="spec" in2="g" operator="in" result="specIn"/>' +
+      '<feComposite in="SourceGraphic" in2="g" operator="atop" result="base"/>' +
+      '<feComposite in="specIn" in2="base" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="lit"/>' +
+      '<feDropShadow in="lit" dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity=".35"/></filter></defs>' +
+      '<defs><filter id="gooT" x="-30%" y="-50%" width="160%" height="200%" color-interpolation-filters="sRGB">' +
+      '<feGaussianBlur in="SourceGraphic" stdDeviation="6" result="b"/>' +
+      '<feColorMatrix in="b" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 26 -11" result="g"/>' +
+      '<feFlood flood-color="#ffffff" flood-opacity=".22" result="fl"/>' +
+      '<feComposite in="fl" in2="g" operator="in" result="body"/>' +
+      '<feMorphology in="g" operator="erode" radius="2" result="er"/>' +
+      '<feComposite in="g" in2="er" operator="out" result="rimMask"/>' +
+      '<feFlood flood-color="#ffffff" flood-opacity=".65" result="wf"/>' +
+      '<feComposite in="wf" in2="rimMask" operator="in" result="rim"/>' +
+      '<feGaussianBlur in="g" stdDeviation="1.2" result="gs"/>' +
+      '<feSpecularLighting in="gs" surfaceScale="5" specularConstant="1.2" specularExponent="24" lighting-color="#ffffff" result="spec">' +
+      '<fePointLight x="-30" y="-60" z="140"/></feSpecularLighting>' +
+      '<feComposite in="spec" in2="g" operator="in" result="specIn"/>' +
+      '<feMerge result="lit"><feMergeNode in="body"/><feMergeNode in="specIn"/><feMergeNode in="rim"/></feMerge>' +
+      '<feDropShadow in="lit" dx="0" dy="3" stdDeviation="3" flood-color="#000" flood-opacity=".3"/></filter></defs>' +
+      '<g filter="url(#gooT)"><circle class="gF"/><circle class="gL"/></g>';
+    nav.prepend(goo);
+    let liquidId = 0;
+
+    // Liquid transfer: the leading drop pulls toward the new item, the trailing drop
+    // is stretched and drawn in behind it, a thin stream links them, and the trailing
+    // drop is absorbed into the leader on arrival.
+    function liquidMove(fromX, btn) {
+      nav.querySelectorAll("button").forEach(b => b.classList.toggle("active", b === btn));
+      thumb.getAnimations().forEach(a => a.cancel());
+      const from = fromX + W / 2;
+      const to = btn.offsetLeft + btn.offsetWidth / 2;
+      if (Math.abs(to - from) < 2) { snapTo(btn); return; }
+
+      const id = ++liquidId;
+      const F = goo.querySelector(".gF"), L = goo.querySelector(".gL");
+      const cy = nav.clientHeight / 2, R = 24, T = 700;
+      goo.setAttribute("viewBox", `0 0 ${nav.clientWidth} ${nav.clientHeight}`);
+      goo.style.display = "block";
+      thumb.style.opacity = "0";
+
+      const ease = p => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+      const set = (el, x, r) => {
+        el.setAttribute("cx", x); el.setAttribute("cy", cy); el.setAttribute("r", Math.max(0, r));
+      };
+      const t0 = performance.now();
+
+      function frame(now) {
+        if (id !== liquidId) return; // a newer tap took over
+        const p = Math.min(1, (now - t0) / T);
+        const lx = from + (to - from) * ease(p);
+        const fp = ease(Math.max(0, (p - 0.14) / 0.86));
+        const fx = from + (to - from) * fp;
+        set(L, lx, R + 3 * Math.sin(Math.PI * p));
+        set(F, fx, R * (1 - 0.85 * fp));
+        if (p < 1) { requestAnimationFrame(frame); return; }
+        goo.style.display = "none";
+        thumb.style.transition = "none";
+        thumb.style.opacity = "";
+        paint(btn.offsetLeft + (btn.offsetWidth - W) / 2);
+        void thumb.offsetHeight;
+        thumb.style.transition = "";
+      }
+      requestAnimationFrame(frame);
+    }
+
+    nav.addEventListener("click", e => {
+      const b = e.target.closest("button");
+      if (!b || b.parentNode !== nav) return;
+      if (Math.abs(centerX(b) - curX) < 2) snapTo(b);
+      else snapTo(b);
+    });
+
+    window.addEventListener("resize", () => snapTo(nav.querySelector("button.active")));
+    snapTo(nav.querySelector("button.active"));
+  })();
+
+  render();
+  loadRemote();
+})();
+</script>
+</body>
+</html>
